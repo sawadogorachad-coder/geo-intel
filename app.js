@@ -146,7 +146,19 @@
       else if (pop > 50e3)   showAt = 6;
       else if (pop > 20e3)   showAt = 7;
       else                   showAt = 8;
-      cm.setStyle({ opacity: z >= showAt ? 1 : 0, fillOpacity: z >= showAt ? 0.85 : 0 });
+      const visible = z >= showAt;
+      cm.setStyle({ opacity: visible ? 1 : 0, fillOpacity: visible ? 0.85 : 0 });
+
+      // Label permanent (≥ 500k seulement) : opacité selon zoom
+      const tt = cm.getTooltip();
+      if (tt && tt.options.permanent) {
+        let labelAt;
+        if      (pop > 5e6)   labelAt = 4;   // mégalopoles → 4+
+        else if (pop > 1e6)   labelAt = 5;   // > 1M → 5+
+        else                  labelAt = 6;   // 500k-1M → 6+
+        const showLabel = z >= labelAt && visible;
+        tt.setOpacity(showLabel ? 1 : 0);
+      }
     });
   }
   map.on('zoomend', applyZoomVisibility);
@@ -425,20 +437,68 @@
     }
   }
 
-  function renderGdelt(json) {
+  // Cache de traduction (par URL d'article)
+  const _trCache = new Map();
+  // GDELT lang label → code MyMemory
+  const LANG_CODE = {
+    'English':'en','French':'fr','Spanish':'es','German':'de','Italian':'it','Portuguese':'pt',
+    'Russian':'ru','Arabic':'ar','Chinese':'zh-CN','Japanese':'ja','Korean':'ko',
+    'Turkish':'tr','Persian':'fa','Hindi':'hi','Urdu':'ur','Hebrew':'he','Greek':'el',
+    'Polish':'pl','Dutch':'nl','Swedish':'sv','Norwegian':'no','Danish':'da','Finnish':'fi',
+    'Czech':'cs','Hungarian':'hu','Romanian':'ro','Bulgarian':'bg','Ukrainian':'uk',
+    'Indonesian':'id','Malay':'ms','Vietnamese':'vi','Thai':'th','Tagalog':'tl',
+  };
+
+  async function translateTitle(text, srcLang) {
+    if (!text) return text;
+    if (srcLang === 'French' || srcLang === 'fre' || srcLang === 'fr') return text;
+    if (_trCache.has(text)) return _trCache.get(text);
+    const code = LANG_CODE[srcLang] || 'autodetect';
+    const url = 'https://api.mymemory.translated.net/get?q=' + encodeURIComponent(text.slice(0, 480))
+              + '&langpair=' + encodeURIComponent(code) + '|fr';
+    try {
+      const r = await fetch(url);
+      const j = await r.json();
+      const tr = (j && j.responseData && j.responseData.translatedText) || text;
+      // Filtre erreurs API (renvoie des messages)
+      if (/MYMEMORY WARNING|INVALID/i.test(tr)) {
+        _trCache.set(text, text);
+        return text;
+      }
+      _trCache.set(text, tr);
+      return tr;
+    } catch {
+      _trCache.set(text, text);
+      return text;
+    }
+  }
+
+  function buildArticleHtml(a, translated) {
+    const orig = a.title || '(sans titre)';
+    const lang = a.language || '';
+    const showOrig = translated && translated !== orig;
+    return `
+      <div style="margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid #1a2340">
+        <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" style="color:#93c5fd;text-decoration:none;font-weight:600;font-size:.88rem;line-height:1.35;display:block">${escapeHtml(translated || orig)}</a>
+        ${showOrig ? `<div style="font-size:.74rem;color:#64748b;margin-top:3px;font-style:italic">📰 VO (${escapeHtml(lang)}) : ${escapeHtml(orig)}</div>` : ''}
+        <div style="font-size:.76rem;color:#94a3b8;margin-top:3px">${escapeHtml(a.domain || '')} · ${escapeHtml(a.seendate || '')}</div>
+      </div>
+    `;
+  }
+
+  async function renderGdelt(json) {
     layers.live.clearLayers();
     const arts = json && json.articles ? json.articles : [];
-    // Grouper par pays pour clusterer
+    // Grouper par pays
     const byCountry = {};
     arts.forEach(a => {
       const c = a.sourcecountry || 'Unknown';
       (byCountry[c] = byCountry[c] || []).push(a);
     });
     let n = 0;
-    Object.entries(byCountry).forEach(([country, list]) => {
+    for (const [country, list] of Object.entries(byCountry)) {
       const coords = findCoords(country);
-      if (!coords) return;
-      // Jitter aléatoire pour éviter superposition (deterministic basé sur le pays)
+      if (!coords) continue;
       const seed = country.charCodeAt(0) + country.length;
       const jitterLat = ((seed * 7) % 100) / 100 - 0.5;
       const jitterLon = ((seed * 11) % 100) / 100 - 0.5;
@@ -446,20 +506,40 @@
       const lon = coords[1] + jitterLon * 2;
       n++;
       const m = L.marker([lat, lon], { icon: makeIcon('live') });
-      const top5 = list.slice(0, 5).map(a => `
-        <div style="margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #1a2340">
-          <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" style="color:#93c5fd;text-decoration:none;font-weight:600">${escapeHtml(a.title || '(sans titre)')}</a>
-          <div style="font-size:.78rem;color:#94a3b8;margin-top:2px">${escapeHtml(a.domain || '')} · ${escapeHtml(a.seendate || '')}</div>
-        </div>
-      `).join('');
-      m.bindPopup(`
+
+      // Construction popup avec traduction lazy à l'ouverture
+      const buildPopup = (translations) => `
         <div class="popup-title" style="color:#ef4444"><i class="fa-solid fa-tower-broadcast"></i>${escapeHtml(country)}</div>
-        <div class="popup-meta">GDELT · ${list.length} article${list.length > 1 ? 's' : ''} · 24h</div>
-        <div class="popup-row" style="margin-top:6px;max-height:280px;overflow-y:auto">${top5}</div>
-        ${list.length > 5 ? `<div style="font-size:.78rem;color:#64748b;margin-top:4px">+ ${list.length - 5} autres…</div>` : ''}
-      `, { maxWidth: 380 });
+        <div class="popup-meta">GDELT · ${list.length} article${list.length > 1 ? 's' : ''} · 24h · 🇫🇷 traduit auto</div>
+        <div class="popup-row" style="margin-top:6px;max-height:320px;overflow-y:auto">
+          ${list.slice(0, 5).map((a, i) => buildArticleHtml(a, translations[i])).join('')}
+        </div>
+        ${list.length > 5 ? `<div style="font-size:.78rem;color:#64748b;margin-top:4px">+ ${list.length - 5} autres articles…</div>` : ''}
+      `;
+
+      // Popup initial : titres originaux + indicateur "Traduction…"
+      m.bindPopup(buildPopup(list.slice(0, 5).map(() => null)).replace(
+        /<a /g, '<a data-loading="1" '
+      ).replace(/data-loading="1"/g, 'data-loading="1"').replace(
+        '🇫🇷 traduit auto', '🇫🇷 traduction en cours…'
+      ), { maxWidth: 400 });
+
+      // Au moment de l'ouverture du popup, on lance la traduction
+      m.on('popupopen', async () => {
+        const top5 = list.slice(0, 5);
+        // Traductions en parallèle
+        const translations = await Promise.all(
+          top5.map(a => translateTitle(a.title || '', a.language || ''))
+        );
+        // Remplacer le contenu du popup
+        const popup = m.getPopup();
+        if (popup) {
+          popup.setContent(buildPopup(translations));
+          popup.update();
+        }
+      });
       layers.live.addLayer(m);
-    });
+    }
     const $cnt = document.querySelector('[data-count="live"]');
     if ($cnt) $cnt.textContent = n;
   }
@@ -484,8 +564,25 @@
         fillColor: col,
         fillOpacity: 0.85,
         _pop: c.pop,
+        _nom: c.nom,
       });
-      cm.bindTooltip(c.nom, { direction: 'top', sticky: true, className: 'city-label-mini' });
+      // Villes ≥ 500k : label permanent (caché par défaut, géré par zoom via opacity)
+      // Petites villes : tooltip au survol uniquement (perf)
+      if (c.pop >= 500e3) {
+        cm.bindTooltip(c.nom, {
+          permanent: true,
+          direction: 'right',
+          offset: [r + 3, 0],
+          className: 'city-label-mini',
+          opacity: 0,
+        });
+      } else {
+        cm.bindTooltip(c.nom, {
+          direction: 'top',
+          sticky: true,
+          className: 'city-label-mini',
+        });
+      }
       cm.bindPopup(`
         <div class="popup-title"><i class="fa-solid fa-city"></i>${escapeHtml(c.nom)}</div>
         <div class="popup-meta">${escapeHtml(c.pays)} (${escapeHtml(c.cc)})</div>
@@ -584,6 +681,9 @@
       if (cb.checked) {
         layers[k].addTo(map);
         applyZoomVisibility();
+        // Re-apply après que les tooltips soient montés dans le DOM
+        setTimeout(applyZoomVisibility, 100);
+        setTimeout(applyZoomVisibility, 400);
       } else {
         map.removeLayer(layers[k]);
       }
