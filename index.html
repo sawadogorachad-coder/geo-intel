@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>GeoIntel — Carte d'intelligence géopolitique</title>
+
+<link rel="stylesheet" href="lib/leaflet/leaflet.css"/>
+<link rel="stylesheet" href="lib/fontawesome/css/all.min.css"/>
+<link rel="stylesheet" href="styles.css"/>
+
+<script src="lib/leaflet/leaflet.js"></script>
+<script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+</script>
+</head>
+<body>
+
+<!-- ═══════ HEADER ═══════ -->
+<header id="header">
+  <div class="brand">
+    <i class="fa-solid fa-globe"></i>
+    GeoIntel
+    <span class="brand-sub">— intelligence géopolitique</span>
+  </div>
+
+  <div id="search-wrap">
+    <i class="fa-solid fa-magnifying-glass search-ico"></i>
+    <input id="search" type="text" placeholder="Rechercher un pays, une ville, un détroit…" autocomplete="off"/>
+    <div id="search-results"></div>
+  </div>
+
+  <div id="stats">
+    <div class="stat-pill"><span class="stat-num" id="stat-villes">0</span>villes</div>
+    <div class="stat-pill"><span class="stat-num" id="stat-detroits">0</span>détroits</div>
+    <div class="stat-pill"><span class="stat-num" id="stat-territoires">0</span>territoires</div>
+    <div class="stat-pill crit"><span class="stat-num" id="stat-crit">0</span>zones critiques</div>
+  </div>
+</header>
+
+<!-- ═══════ MAIN ═══════ -->
+<div id="main">
+
+  <!-- ── SIDEBAR ── -->
+  <aside id="sidebar">
+
+    <h3>Calques</h3>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="pays" checked id="cb-pays"/>
+      <span class="lr-icon" style="background:#0a1a2a;color:#94a3b8"><i class="fa-solid fa-earth-europe"></i></span>
+      <span class="lr-label">Noms de pays</span>
+      <span class="lr-count" data-count="pays">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="mers" checked id="cb-mers"/>
+      <span class="lr-icon mers"><i class="fa-solid fa-water"></i></span>
+      <span class="lr-label">Mers et océans</span>
+      <span class="lr-count" data-count="mers">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="fleuves" checked id="cb-fleuves"/>
+      <span class="lr-icon fleuves"><i class="fa-solid fa-route"></i></span>
+      <span class="lr-label">Fleuves stratégiques</span>
+      <span class="lr-count" data-count="fleuves">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="detroits" checked id="cb-detroits"/>
+      <span class="lr-icon detroits"><i class="fa-solid fa-bezier-curve"></i></span>
+      <span class="lr-label">Détroits et canaux</span>
+      <span class="lr-count" data-count="detroits">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="montagnes" checked id="cb-montagnes"/>
+      <span class="lr-icon montagnes"><i class="fa-solid fa-mountain"></i></span>
+      <span class="lr-label">Chaînes de montagnes</span>
+      <span class="lr-count" data-count="montagnes">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="territoires" checked id="cb-territoires"/>
+      <span class="lr-icon territoires"><i class="fa-solid fa-flag"></i></span>
+      <span class="lr-label">Territoires contestés</span>
+      <span class="lr-count" data-count="territoires">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="villes" checked id="cb-villes"/>
+      <span class="lr-icon villes"><i class="fa-solid fa-location-dot"></i></span>
+      <span class="lr-label">Villes stratégiques</span>
+      <span class="lr-count" data-count="villes">0</span>
+    </div>
+
+    <h3>Filtres — détroits</h3>
+    <div class="filter-group">
+      <label>Niveau de risque</label>
+      <select id="filter-detroits">
+        <option value="all">Tous</option>
+        <option value="critique">Critique uniquement</option>
+        <option value="élevé">Élevé</option>
+        <option value="moyen">Moyen</option>
+        <option value="faible">Faible</option>
+      </select>
+    </div>
+
+    <h3>Filtres — territoires</h3>
+    <div class="filter-group">
+      <label>Type de différend</label>
+      <select id="filter-territoires">
+        <option value="all">Tous</option>
+        <option value="conflit_actif">Conflit actif</option>
+        <option value="conflit_latent">Conflit latent</option>
+        <option value="conflit_gele">Conflit gelé</option>
+        <option value="annexion">Annexion</option>
+        <option value="occupation">Occupation</option>
+        <option value="post_conflit">Post-conflit</option>
+      </select>
+    </div>
+
+    <h3>Filtres — villes</h3>
+    <div class="filter-group">
+      <label>Catégorie</label>
+      <select id="filter-villes">
+        <option value="all">Toutes</option>
+        <option value="capital">Capitales stratégiques</option>
+        <option value="megacity">Mégalopoles</option>
+        <option value="hub">Hubs économiques</option>
+        <option value="strategic">Points stratégiques</option>
+        <option value="conflict">Zones de conflit</option>
+        <option value="world_capital">Capitales mondiales (autres)</option>
+        <option value="world_city">Grandes villes</option>
+      </select>
+    </div>
+
+    <h3>Zones — accès rapide</h3>
+    <div class="btn-row">
+      <button class="zone-btn active" data-zone="monde">Monde</button>
+      <button class="zone-btn" data-zone="sahel">Sahel</button>
+    </div>
+    <div class="btn-row">
+      <button class="zone-btn" data-zone="moyenor">Moyen-Orient</button>
+      <button class="zone-btn" data-zone="europe">Europe</button>
+    </div>
+    <div class="btn-row">
+      <button class="zone-btn" data-zone="asiepac">Asie-Pacifique</button>
+      <button class="zone-btn" data-zone="afrique">Afrique</button>
+    </div>
+
+  </aside>
+
+  <!-- ── MAP ── -->
+  <div id="map"></div>
+
+  <div class="click-hint">
+    <i class="fa-solid fa-circle-info"></i>Cliquez sur une ville pour ouvrir la fiche pays complète
+  </div>
+
+  <!-- ── LEGEND ── -->
+  <div id="legend" class="collapsed">
+    <div id="legend-toggle">
+      <span class="lt-title"><i class="fa-solid fa-list" style="margin-right:5px"></i>Légende</span>
+      <i class="fa-solid fa-chevron-down lt-chevron"></i>
+    </div>
+    <div class="legend-body">
+      <h4>Risques détroits / canaux</h4>
+      <div class="lg-row"><span class="lg-dot" style="background:#ef4444"></span>Critique</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#f97316"></span>Élevé</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#fbbf24"></span>Moyen</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#4ade80"></span>Faible</div>
+      <h4 style="margin-top:8px">Villes</h4>
+      <div class="lg-row"><span class="lg-dot" style="background:#60a5fa"></span>Capitale stratégique</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#22c55e"></span>Mégalopole</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#fbbf24"></span>Hub</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#a78bfa"></span>Stratégique</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#ef4444"></span>Conflit</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#93c5fd;width:6px;height:6px"></span>Capitale (autre)</div>
+      <div class="lg-row"><span class="lg-dot" style="background:#cbd5e1;width:5px;height:5px"></span>Grande ville</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ── PANEL FICHE PAYS ── -->
+<aside id="panel">
+  <div class="panel-header">
+    <div>
+      <h2 id="panel-title">—</h2>
+      <div class="panel-cap" id="panel-cap"></div>
+    </div>
+    <button id="panel-close" title="Fermer"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+  <div class="panel-body" id="panel-body"></div>
+</aside>
+
+<!-- ═══════ DATA + APP ═══════ -->
+<script src="geo-data.js"></script>
+<script src="world-cities.js"></script>
+<script src="world-conflicts.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
