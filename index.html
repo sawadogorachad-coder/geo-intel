@@ -118,6 +118,20 @@
       <span class="lr-count" data-count="ressources">0</span>
     </div>
 
+    <div class="layer-row">
+      <input type="checkbox" data-layer="allcities" id="cb-allcities"/>
+      <span class="lr-icon allcities"><i class="fa-solid fa-city"></i></span>
+      <span class="lr-label">Toutes villes (mondial)</span>
+      <span class="lr-count" data-count="allcities">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="live" checked id="cb-live"/>
+      <span class="lr-icon live"><i class="fa-solid fa-tower-broadcast"></i></span>
+      <span class="lr-label">Événements 24h (GDELT)</span>
+      <span class="lr-count" data-count="live">…</span>
+    </div>
+
     <h3>Filtres — énergie</h3>
     <div class="filter-group">
       <label>Type d'énergie</label>
@@ -261,6 +275,7 @@
 <script src="world-cities.js"></script>
 <script src="world-conflicts.js"></script>
 <script src="world-resources.js"></script>
+<script src="world-all-cities.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

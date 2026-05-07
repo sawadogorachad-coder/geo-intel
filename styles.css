@@ -144,6 +144,34 @@ input, select { font-family: inherit; }
 .lr-icon.lacs       { background: rgba(96, 165, 250, .15);  color: #93c5fd; }
 .lr-icon.energie    { background: rgba(251, 191, 36, .15);  color: #fcd34d; }
 .lr-icon.ressources { background: rgba(167, 139, 250, .15); color: #c4b5fd; }
+.lr-icon.allcities  { background: rgba(56, 189, 248, .15);  color: #7dd3fc; }
+.lr-icon.live       { background: rgba(239, 68, 68, .15);   color: #fca5a5; }
+
+/* Marker GDELT : rouge pulsant */
+.gi-marker.live .gi-dot {
+  width: 12px; height: 12px;
+  background: #ef4444;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px #7f1d1d, 0 0 12px rgba(239,68,68,.8);
+  animation: gi-pulse 1.6s ease-out infinite;
+}
+@keyframes gi-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(239,68,68,.7), 0 0 12px rgba(239,68,68,.8); }
+  70%  { box-shadow: 0 0 0 14px rgba(239,68,68,0),   0 0 12px rgba(239,68,68,.8); }
+  100% { box-shadow: 0 0 0 0   rgba(239,68,68,0),   0 0 12px rgba(239,68,68,.8); }
+}
+
+/* Mini-tooltip (toutes villes) */
+.city-label-mini {
+  background: rgba(255,255,255,.92) !important;
+  border: 1px solid rgba(0,0,0,.12) !important;
+  border-radius: 3px !important;
+  padding: 1px 5px !important;
+  font-size: 10px !important;
+  color: #0c1426 !important;
+  white-space: nowrap !important;
+}
+.city-label-mini::before { display: none !important; }
 
 /* Markers — lacs / énergie / ressources */
 .gi-marker.lac .gi-dot       { width: 9px; height: 9px; background: #60a5fa; border: 1.5px solid #fff; box-shadow: 0 0 0 1px #1e3a8a; }

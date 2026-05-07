@@ -8,7 +8,7 @@
 
   const { MERS, FLEUVES, DETROITS, MONTAGNES, VILLES, PAYS_DATA, PAYS_LABELS,
           CAPITALES_MONDE, GRANDES_VILLES, CONFLITS_SUP,
-          LACS, ZONES_ENERGIE, RESSOURCES_MIN } = window.GEO;
+          LACS, ZONES_ENERGIE, RESSOURCES_MIN, ALL_CITIES } = window.GEO;
   // Fusion conflits : TERRITOIRES (depuis geo-data.js) + CONFLITS_SUP (world-conflicts.js)
   const TERRITOIRES = [...window.GEO.TERRITOIRES, ...(CONFLITS_SUP || [])];
   // Fusion villes : VILLES stratégiques + capitales monde + grandes villes (sans doublons par nom+pays)
@@ -38,6 +38,9 @@
   }).addTo(map);
 
   // ── LAYER GROUPS ───────────────────────────────────────────
+  // Canvas renderer pour les milliers de villes mondiales (performant)
+  const cityCanvas = L.canvas({ padding: 0.5 });
+
   const layers = {
     pays: L.layerGroup(),       // labels pays (par tier, gérés selon zoom)
     mers: L.layerGroup(),
@@ -46,12 +49,14 @@
     montagnes: L.layerGroup(),
     territoires: L.layerGroup(),
     villes: L.layerGroup(),
-    lacs: L.layerGroup(),       // OFF par défaut
-    energie: L.layerGroup(),    // OFF par défaut
-    ressources: L.layerGroup(), // OFF par défaut
+    lacs: L.layerGroup(),
+    energie: L.layerGroup(),
+    ressources: L.layerGroup(),
+    allcities: L.layerGroup(),  // 67k villes — canvas, OFF par défaut
+    live: L.layerGroup(),       // GDELT temps réel — ON par défaut
   };
-  // Couches par défaut activées (les 3 nouvelles restent OFF)
-  ['pays','mers','fleuves','detroits','montagnes','territoires','villes']
+  // Couches par défaut activées
+  ['pays','mers','fleuves','detroits','montagnes','territoires','villes','live']
     .forEach(k => layers[k].addTo(map));
 
   // ── HELPERS ─────────────────────────────────────────────────
@@ -130,6 +135,18 @@
       else                                     showAt = 5;
       if (z >= showAt) tt.setOpacity(1);
       else tt.setOpacity(0);
+    });
+    // Toutes les villes (canvas) : seuils par population pour ne pas tout afficher au zoom 2
+    layers.allcities.eachLayer(cm => {
+      const pop = cm.options._pop || 0;
+      let showAt;
+      if      (pop > 1e6)    showAt = 3;
+      else if (pop > 500e3)  showAt = 4;
+      else if (pop > 100e3)  showAt = 5;
+      else if (pop > 50e3)   showAt = 6;
+      else if (pop > 20e3)   showAt = 7;
+      else                   showAt = 8;
+      cm.setStyle({ opacity: z >= showAt ? 1 : 0, fillOpacity: z >= showAt ? 0.85 : 0 });
     });
   }
   map.on('zoomend', applyZoomVisibility);
@@ -352,7 +369,132 @@
     return count;
   }
 
+  // ── 10b. GDELT — Événements terroristes / armés 24h ─────────
+  // API DOC 2.0 (CORS OK) — refresh toutes les 30 min
+  // Recherche : attentats, attaques armées, terrorisme
+  const GDELT_QUERY = '(terrorism OR "terror attack" OR "armed attack" OR "armed conflict" OR insurgency OR jihadist OR "suicide bombing" OR ambush)';
+  const GDELT_URL = 'https://api.gdeltproject.org/api/v2/doc/doc'
+    + '?query=' + encodeURIComponent(GDELT_QUERY)
+    + '&mode=ArtList&format=json&maxrecords=250&timespan=24H&sort=hybridrel';
+
+  // Index pays → coords (depuis PAYS_LABELS) pour placement
+  const _paysIdx = {};
+  PAYS_LABELS.forEach(p => {
+    _paysIdx[p.nom.toLowerCase()] = [p.lat, p.lon];
+    _paysIdx[norm(p.nom)] = [p.lat, p.lon];
+  });
+  // Mapping GDELT sourcecountry → notre nom pays (cas spéciaux EN→FR)
+  const GDELT_COUNTRY_FR = {
+    'mali':'Mali','burkina faso':'Burkina Faso','niger':'Niger','nigeria':'Nigeria',
+    'somalia':'Somalie','sudan':'Soudan','south sudan':'Soudan du Sud','ethiopia':'Éthiopie',
+    'kenya':'Kenya','democratic republic of the congo':'RDC','congo':'Congo',
+    'cameroon':'Cameroun','chad':'Tchad','central african republic':'Centrafrique',
+    'libya':'Libye','egypt':'Égypte','morocco':'Maroc','algeria':'Algérie','tunisia':'Tunisie',
+    'syria':'Syrie','iraq':'Irak','iran':'Iran','yemen':'Yémen','israel':'Israël',
+    'lebanon':'Liban','palestinian territory':'Palestine','jordan':'Jordanie','turkey':'Turquie',
+    'afghanistan':'Afghanistan','pakistan':'Pakistan','india':'Inde','bangladesh':'Bangladesh',
+    'myanmar':'Myanmar','thailand':'Thaïlande','philippines':'Philippines','indonesia':'Indonésie',
+    'china':'Chine','russia':'Russie','ukraine':'Ukraine','belarus':'Biélorussie',
+    'united states':'États-Unis','mexico':'Mexique','colombia':'Colombie','venezuela':'Venezuela',
+    'haiti':'Haïti','france':'France','germany':'Allemagne','united kingdom':'Royaume-Uni',
+    'spain':'Espagne','italy':'Italie',
+  };
+
+  function findCoords(country) {
+    if (!country) return null;
+    const ck = country.toLowerCase();
+    const fr = GDELT_COUNTRY_FR[ck];
+    if (fr) {
+      const c = _paysIdx[fr.toLowerCase()] || _paysIdx[norm(fr)];
+      if (c) return c;
+    }
+    return _paysIdx[ck] || _paysIdx[norm(country)] || null;
+  }
+
+  async function fetchGdelt() {
+    const $cnt = document.querySelector('[data-count="live"]');
+    try {
+      if ($cnt) $cnt.textContent = '…';
+      const res = await fetch(GDELT_URL);
+      if (!res.ok) throw new Error('GDELT HTTP ' + res.status);
+      const json = await res.json();
+      renderGdelt(json);
+    } catch (e) {
+      console.warn('GDELT échec :', e);
+      if ($cnt) $cnt.textContent = '!';
+    }
+  }
+
+  function renderGdelt(json) {
+    layers.live.clearLayers();
+    const arts = json && json.articles ? json.articles : [];
+    // Grouper par pays pour clusterer
+    const byCountry = {};
+    arts.forEach(a => {
+      const c = a.sourcecountry || 'Unknown';
+      (byCountry[c] = byCountry[c] || []).push(a);
+    });
+    let n = 0;
+    Object.entries(byCountry).forEach(([country, list]) => {
+      const coords = findCoords(country);
+      if (!coords) return;
+      // Jitter aléatoire pour éviter superposition (deterministic basé sur le pays)
+      const seed = country.charCodeAt(0) + country.length;
+      const jitterLat = ((seed * 7) % 100) / 100 - 0.5;
+      const jitterLon = ((seed * 11) % 100) / 100 - 0.5;
+      const lat = coords[0] + jitterLat * 2;
+      const lon = coords[1] + jitterLon * 2;
+      n++;
+      const m = L.marker([lat, lon], { icon: makeIcon('live') });
+      const top5 = list.slice(0, 5).map(a => `
+        <div style="margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #1a2340">
+          <a href="${escapeHtml(a.url)}" target="_blank" rel="noopener" style="color:#93c5fd;text-decoration:none;font-weight:600">${escapeHtml(a.title || '(sans titre)')}</a>
+          <div style="font-size:.78rem;color:#94a3b8;margin-top:2px">${escapeHtml(a.domain || '')} · ${escapeHtml(a.seendate || '')}</div>
+        </div>
+      `).join('');
+      m.bindPopup(`
+        <div class="popup-title" style="color:#ef4444"><i class="fa-solid fa-tower-broadcast"></i>${escapeHtml(country)}</div>
+        <div class="popup-meta">GDELT · ${list.length} article${list.length > 1 ? 's' : ''} · 24h</div>
+        <div class="popup-row" style="margin-top:6px;max-height:280px;overflow-y:auto">${top5}</div>
+        ${list.length > 5 ? `<div style="font-size:.78rem;color:#64748b;margin-top:4px">+ ${list.length - 5} autres…</div>` : ''}
+      `, { maxWidth: 380 });
+      layers.live.addLayer(m);
+    });
+    const $cnt = document.querySelector('[data-count="live"]');
+    if ($cnt) $cnt.textContent = n;
+  }
+
+  // Refresh au démarrage puis toutes les 30 min
+  fetchGdelt();
+  setInterval(fetchGdelt, 30 * 60 * 1000);
+
   // ── PANEL FICHE PAYS ────────────────────────────────────────
+  function renderAllCities() {
+    layers.allcities.clearLayers();
+    if (!ALL_CITIES) return;
+    ALL_CITIES.forEach(c => {
+      // Taille / couleur selon population
+      const r = c.pop > 1e7 ? 5 : c.pop > 1e6 ? 4 : c.pop > 100e3 ? 3 : c.pop > 20e3 ? 2 : 1.5;
+      const col = c.pop > 1e6 ? '#1d4ed8' : c.pop > 100e3 ? '#3b82f6' : c.pop > 20e3 ? '#60a5fa' : '#94a3b8';
+      const cm = L.circleMarker([c.lat, c.lon], {
+        renderer: cityCanvas,
+        radius: r,
+        color: '#fff',
+        weight: 0.5,
+        fillColor: col,
+        fillOpacity: 0.85,
+        _pop: c.pop,
+      });
+      cm.bindTooltip(c.nom, { direction: 'top', sticky: true, className: 'city-label-mini' });
+      cm.bindPopup(`
+        <div class="popup-title"><i class="fa-solid fa-city"></i>${escapeHtml(c.nom)}</div>
+        <div class="popup-meta">${escapeHtml(c.pays)} (${escapeHtml(c.cc)})</div>
+        <div class="popup-row"><b>Population:</b> ${c.pop.toLocaleString('fr-FR')} hab.</div>
+      `, { maxWidth: 280 });
+      layers.allcities.addLayer(cm);
+    });
+  }
+
   const panel = document.getElementById('panel');
   const panelBody = document.getElementById('panel-body');
   const panelTitle = document.getElementById('panel-title');
@@ -600,6 +742,8 @@
     if ($en) $en.textContent = (ZONES_ENERGIE || []).length;
     const $rs = document.querySelector('[data-count="ressources"]');
     if ($rs) $rs.textContent = (RESSOURCES_MIN || []).length;
+    const $ac = document.querySelector('[data-count="allcities"]');
+    if ($ac) $ac.textContent = (ALL_CITIES || []).length.toLocaleString('fr-FR');
   }
 
   // ── INITIAL RENDER ─────────────────────────────────────────
@@ -613,6 +757,7 @@
   renderLacs();
   renderEnergie('all');
   renderRessources('all');
+  renderAllCities();
   applyZoomVisibility();
   updateCounts();
   updateStats();
