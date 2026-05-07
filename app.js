@@ -7,7 +7,8 @@
   'use strict';
 
   const { MERS, FLEUVES, DETROITS, MONTAGNES, VILLES, PAYS_DATA, PAYS_LABELS,
-          CAPITALES_MONDE, GRANDES_VILLES, CONFLITS_SUP } = window.GEO;
+          CAPITALES_MONDE, GRANDES_VILLES, CONFLITS_SUP,
+          LACS, ZONES_ENERGIE, RESSOURCES_MIN } = window.GEO;
   // Fusion conflits : TERRITOIRES (depuis geo-data.js) + CONFLITS_SUP (world-conflicts.js)
   const TERRITOIRES = [...window.GEO.TERRITOIRES, ...(CONFLITS_SUP || [])];
   // Fusion villes : VILLES stratégiques + capitales monde + grandes villes (sans doublons par nom+pays)
@@ -45,8 +46,13 @@
     montagnes: L.layerGroup(),
     territoires: L.layerGroup(),
     villes: L.layerGroup(),
+    lacs: L.layerGroup(),       // OFF par défaut
+    energie: L.layerGroup(),    // OFF par défaut
+    ressources: L.layerGroup(), // OFF par défaut
   };
-  Object.values(layers).forEach(l => l.addTo(map));
+  // Couches par défaut activées (les 3 nouvelles restent OFF)
+  ['pays','mers','fleuves','detroits','montagnes','territoires','villes']
+    .forEach(k => layers[k].addTo(map));
 
   // ── HELPERS ─────────────────────────────────────────────────
   const norm = s => (s || '').toString().toLowerCase()
@@ -281,6 +287,71 @@
     return count;
   }
 
+  // ── 7. LACS MAJEURS ────────────────────────────────────────
+  function renderLacs() {
+    layers.lacs.clearLayers();
+    (LACS || []).forEach(l => {
+      const m = L.marker([l.lat, l.lon], { icon: makeIcon('lac') });
+      m.bindPopup(`
+        ${popupTitle('fa-droplet', l.nom)}
+        <div class="popup-meta">${escapeHtml(l.pays)}</div>
+        <div class="popup-row"><b>Superficie:</b> ${escapeHtml(l.superficie)}</div>
+        <div class="popup-row"><b>Profondeur:</b> ${escapeHtml(l.profondeur)}</div>
+        <div class="popup-row" style="margin-top:6px;color:#cbd5e1">${escapeHtml(l.note)}</div>
+      `, { maxWidth: 340 });
+      m.bindTooltip(l.nom, { direction: 'top', className: 'sea-label lac', offset: [0, -8] });
+      layers.lacs.addLayer(m);
+    });
+  }
+
+  // ── 8. ZONES ÉNERGÉTIQUES ──────────────────────────────────
+  function renderEnergie(filter) {
+    layers.energie.clearLayers();
+    let count = 0;
+    (ZONES_ENERGIE || []).forEach(e => {
+      if (filter && filter !== 'all' && e.type !== filter) return;
+      count++;
+      const m = L.marker([e.lat, e.lon], { icon: makeIcon('energie', e.type) });
+      const icon = e.type === 'petrole' ? 'fa-oil-well'
+                 : e.type === 'gaz' ? 'fa-fire-flame-curved'
+                 : e.type === 'nucleaire' ? 'fa-radiation'
+                 : e.type === 'hydro' ? 'fa-water'
+                 : e.type === 'charbon' ? 'fa-industry'
+                 : e.type === 'raffinerie' ? 'fa-industry'
+                 : 'fa-bolt';
+      m.bindPopup(`
+        ${popupTitle(icon, e.nom)}
+        <div class="popup-meta">${escapeHtml(e.pays)} · <span class="popup-tag">${escapeHtml(e.type)}</span></div>
+        ${e.capacite ? `<div class="popup-row"><b>Capacité:</b> ${escapeHtml(e.capacite)}</div>` : ''}
+        ${e.reserves ? `<div class="popup-row"><b>Réserves:</b> ${escapeHtml(e.reserves)}</div>` : ''}
+        <div class="popup-row" style="margin-top:6px;color:#cbd5e1">${escapeHtml(e.note)}</div>
+      `, { maxWidth: 360 });
+      m.bindTooltip(e.nom, { direction: 'top', className: 'energie-label', offset: [0, -8] });
+      layers.energie.addLayer(m);
+    });
+    return count;
+  }
+
+  // ── 9. RESSOURCES MINÉRALES ────────────────────────────────
+  function renderRessources(filter) {
+    layers.ressources.clearLayers();
+    let count = 0;
+    (RESSOURCES_MIN || []).forEach(r => {
+      if (filter && filter !== 'all' && r.type !== filter) return;
+      count++;
+      const m = L.marker([r.lat, r.lon], { icon: makeIcon('ressource', r.type) });
+      m.bindPopup(`
+        ${popupTitle('fa-gem', r.nom)}
+        <div class="popup-meta">${escapeHtml(r.pays)} · <span class="popup-tag">${escapeHtml(r.type.replace('_', ' '))}</span></div>
+        ${r.reserves ? `<div class="popup-row"><b>Volume / opérateur:</b> ${escapeHtml(r.reserves)}</div>` : ''}
+        <div class="popup-row" style="margin-top:6px;color:#cbd5e1">${escapeHtml(r.note)}</div>
+      `, { maxWidth: 360 });
+      m.bindTooltip(r.nom, { direction: 'top', className: 'ressource-label', offset: [0, -8] });
+      layers.ressources.addLayer(m);
+    });
+    return count;
+  }
+
   // ── PANEL FICHE PAYS ────────────────────────────────────────
   const panel = document.getElementById('panel');
   const panelBody = document.getElementById('panel-body');
@@ -391,6 +462,44 @@
     applyZoomVisibility();   // ré-appliquer l'opacity des tooltips après recréation
     updateStats();
   });
+  document.getElementById('filter-energie').addEventListener('change', e => {
+    renderEnergie(e.target.value);
+  });
+  document.getElementById('filter-ressources').addEventListener('change', e => {
+    renderRessources(e.target.value);
+  });
+
+  // ── STATS PILLS CLIQUABLES (en-tête) ───────────────────────
+  document.querySelectorAll('.stat-pill').forEach(pill => {
+    pill.style.cursor = 'pointer';
+    pill.addEventListener('click', () => {
+      const s = pill.dataset.stat;
+      if (s === 'villes') {
+        // Forcer affichage villes + zoom monde
+        const cb = document.getElementById('cb-villes');
+        if (!cb.checked) { cb.checked = true; layers.villes.addTo(map); }
+        map.flyTo([20, 15], 4, { duration: 1.0 });
+        applyZoomVisibility();
+      } else if (s === 'detroits') {
+        // Centrer sur le détroit le plus chaud (Ormuz par défaut)
+        const cb = document.getElementById('cb-detroits');
+        if (!cb.checked) { cb.checked = true; layers.detroits.addTo(map); }
+        map.flyTo([26.55, 56.25], 5, { duration: 1.2 });
+      } else if (s === 'territoires') {
+        const cb = document.getElementById('cb-territoires');
+        if (!cb.checked) { cb.checked = true; layers.territoires.addTo(map); }
+        map.flyTo([35, 35], 4, { duration: 1.2 });
+      } else if (s === 'crit') {
+        // Filtrer territoires en "conflit_actif" + détroits "critique"
+        const ft = document.getElementById('filter-territoires');
+        const fd = document.getElementById('filter-detroits');
+        ft.value = 'conflit_actif'; renderTerritoires('conflit_actif');
+        fd.value = 'critique';      renderDetroits('critique');
+        updateStats();
+        map.flyTo([20, 30], 3, { duration: 1.2 });
+      }
+    });
+  });
 
   // Quick zoom buttons
   document.querySelectorAll('.zone-btn').forEach(btn => {
@@ -485,6 +594,12 @@
     document.querySelector('[data-count="montagnes"]').textContent  = MONTAGNES.length;
     document.querySelector('[data-count="territoires"]').textContent= TERRITOIRES.length;
     document.querySelector('[data-count="villes"]').textContent     = VILLES_ALL.length;
+    const $lacs = document.querySelector('[data-count="lacs"]');
+    if ($lacs) $lacs.textContent = (LACS || []).length;
+    const $en = document.querySelector('[data-count="energie"]');
+    if ($en) $en.textContent = (ZONES_ENERGIE || []).length;
+    const $rs = document.querySelector('[data-count="ressources"]');
+    if ($rs) $rs.textContent = (RESSOURCES_MIN || []).length;
   }
 
   // ── INITIAL RENDER ─────────────────────────────────────────
@@ -495,6 +610,9 @@
   renderMontagnes();
   renderTerritoires('all');
   renderVilles('all');
+  renderLacs();
+  renderEnergie('all');
+  renderRessources('all');
   applyZoomVisibility();
   updateCounts();
   updateStats();

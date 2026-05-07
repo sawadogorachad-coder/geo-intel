@@ -33,10 +33,10 @@
   </div>
 
   <div id="stats">
-    <div class="stat-pill"><span class="stat-num" id="stat-villes">0</span>villes</div>
-    <div class="stat-pill"><span class="stat-num" id="stat-detroits">0</span>détroits</div>
-    <div class="stat-pill"><span class="stat-num" id="stat-territoires">0</span>territoires</div>
-    <div class="stat-pill crit"><span class="stat-num" id="stat-crit">0</span>zones critiques</div>
+    <div class="stat-pill" data-stat="villes" title="Centrer sur villes stratégiques"><span class="stat-num" id="stat-villes">0</span>villes</div>
+    <div class="stat-pill" data-stat="detroits" title="Centrer sur détroits"><span class="stat-num" id="stat-detroits">0</span>détroits</div>
+    <div class="stat-pill" data-stat="territoires" title="Centrer sur conflits"><span class="stat-num" id="stat-territoires">0</span>territoires</div>
+    <div class="stat-pill crit" data-stat="crit" title="Filtrer zones critiques uniquement"><span class="stat-num" id="stat-crit">0</span>zones critiques</div>
   </div>
 </header>
 
@@ -95,6 +95,64 @@
       <span class="lr-icon villes"><i class="fa-solid fa-location-dot"></i></span>
       <span class="lr-label">Villes stratégiques</span>
       <span class="lr-count" data-count="villes">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="lacs" id="cb-lacs"/>
+      <span class="lr-icon lacs"><i class="fa-solid fa-droplet"></i></span>
+      <span class="lr-label">Lacs majeurs</span>
+      <span class="lr-count" data-count="lacs">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="energie" id="cb-energie"/>
+      <span class="lr-icon energie"><i class="fa-solid fa-bolt"></i></span>
+      <span class="lr-label">Zones énergétiques</span>
+      <span class="lr-count" data-count="energie">0</span>
+    </div>
+
+    <div class="layer-row">
+      <input type="checkbox" data-layer="ressources" id="cb-ressources"/>
+      <span class="lr-icon ressources"><i class="fa-solid fa-gem"></i></span>
+      <span class="lr-label">Ressources minérales</span>
+      <span class="lr-count" data-count="ressources">0</span>
+    </div>
+
+    <h3>Filtres — énergie</h3>
+    <div class="filter-group">
+      <label>Type d'énergie</label>
+      <select id="filter-energie">
+        <option value="all">Tous</option>
+        <option value="petrole">Pétrole</option>
+        <option value="gaz">Gaz</option>
+        <option value="nucleaire">Nucléaire</option>
+        <option value="hydro">Hydroélectricité</option>
+        <option value="charbon">Charbon</option>
+        <option value="hub">Hubs / LNG</option>
+        <option value="raffinerie">Raffineries</option>
+      </select>
+    </div>
+
+    <h3>Filtres — ressources</h3>
+    <div class="filter-group">
+      <label>Type de ressource</label>
+      <select id="filter-ressources">
+        <option value="all">Toutes</option>
+        <option value="lithium">Lithium</option>
+        <option value="cobalt">Cobalt</option>
+        <option value="cuivre">Cuivre</option>
+        <option value="or">Or</option>
+        <option value="fer">Fer</option>
+        <option value="bauxite">Bauxite</option>
+        <option value="uranium">Uranium</option>
+        <option value="terres_rares">Terres rares</option>
+        <option value="phosphate">Phosphate</option>
+        <option value="diamant">Diamant</option>
+        <option value="nickel">Nickel</option>
+        <option value="etain">Étain / Coltan</option>
+        <option value="argent">Argent</option>
+        <option value="charbon">Charbon</option>
+      </select>
     </div>
 
     <h3>Filtres — détroits</h3>
@@ -202,6 +260,7 @@
 <script src="geo-data.js"></script>
 <script src="world-cities.js"></script>
 <script src="world-conflicts.js"></script>
+<script src="world-resources.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
